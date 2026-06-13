@@ -1,4 +1,4 @@
-# MC Custom IRC for Render
+# Navine Client IRC
 
 A small WebSocket chat backend for Minecraft clients that use commands like:
 
