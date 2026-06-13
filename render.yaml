@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: navine-client-irc
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SERVER_SECRET
+        generateValue: true
