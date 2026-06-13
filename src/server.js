@@ -2,9 +2,13 @@ import http from "http";
 import { WebSocketServer } from "ws";
 
 const PORT = process.env.PORT || 3000;
-const SERVER_SECRET = process.env.SERVER_SECRET || "change-me";
 
-// username -> { ws, user, connectedAt }
+const RAW_SECRET = process.env.SERVER_SECRET || "";
+const SECRET_REQUIRED = RAW_SECRET !== "" && RAW_SECRET !== "change-me";
+
+const HEARTBEAT_INTERVAL_MS = 25000;
+const MAX_USERS = 200;
+
 const clients = new Map();
 
 function safeJsonParse(text) {
@@ -26,9 +30,17 @@ function cleanMessage(value) {
   return String(value || "").trim().slice(0, 500);
 }
 
+function userList() {
+  return [...clients.keys()];
+}
+
 function send(ws, packet) {
-  if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify(packet));
+  if (ws && ws.readyState === ws.OPEN) {
+    try {
+      ws.send(JSON.stringify(packet));
+    } catch {
+      // ignore send failures on a dying socket
+    }
   }
 }
 
@@ -43,6 +55,7 @@ function disconnectUser(user, reason = "disconnected") {
   const client = clients.get(user);
   clients.delete(user);
   send(client.ws, { type: "disconnected", reason });
+  broadcast({ type: "leave", user, reason });
   broadcast({ type: "system", message: `${user} left IRC`, user });
 }
 
@@ -51,15 +64,18 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(`<!doctype html>
 <html>
-<head><title>MC Custom IRC</title></head>
+<head><title>Navine Client IRC</title></head>
 <body style="font-family: sans-serif; max-width: 760px; margin: 40px auto; line-height: 1.45">
-  <h1>MC Custom IRC server is online</h1>
+  <h1>Navine Client IRC server is online</h1>
   <p>Connected users: <b>${clients.size}</b></p>
+  <p>Auth required: <b>${SECRET_REQUIRED ? "yes" : "no"}</b></p>
   <p>WebSocket endpoint: <code>wss://${req.headers.host}/irc</code></p>
-  <h2>Packets</h2>
-  <pre>{"type":"connect","user":"Steve","secret":"optional-secret"}
+  <h2>Inbound packets</h2>
+  <pre>{"type":"connect","user":"Steve","secret":"only-if-required"}
 {"type":"say","message":"hello"}
 {"type":"dm","to":"Alex","message":"secret"}
+{"type":"users"}
+{"type":"ping"}
 {"type":"disconnect"}</pre>
 </body>
 </html>`);
@@ -74,9 +90,20 @@ const wss = new WebSocketServer({ server, path: "/irc" });
 
 wss.on("connection", (ws) => {
   ws.ircUser = null;
+  ws.isAlive = true;
+
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
+
+  ws.on("error", () => {
+    // swallow socket errors so the process never crashes
+  });
+
   send(ws, {
     type: "hello",
-    message: "Send {type:'connect', user:'YourName'} to join."
+    message: "Send {type:'connect', user:'YourName'} to join.",
+    authRequired: SECRET_REQUIRED
   });
 
   ws.on("message", (raw) => {
@@ -87,9 +114,13 @@ wss.on("connection", (ws) => {
 
     const type = String(packet.type || "").toLowerCase();
 
+    if (type === "ping") {
+      ws.isAlive = true;
+      return send(ws, { type: "pong", time: Date.now() });
+    }
+
     if (type === "connect") {
-      // If SERVER_SECRET is not change-me, clients must send matching secret.
-      if (SERVER_SECRET !== "change-me" && packet.secret !== SERVER_SECRET) {
+      if (SECRET_REQUIRED && packet.secret !== RAW_SECRET) {
         return send(ws, { type: "error", error: "bad_secret" });
       }
 
@@ -97,14 +128,22 @@ wss.on("connection", (ws) => {
       if (!user) return send(ws, { type: "error", error: "bad_username" });
 
       const old = clients.get(user);
+      if (!old && clients.size >= MAX_USERS) {
+        return send(ws, { type: "error", error: "server_full" });
+      }
       if (old && old.ws !== ws) {
         send(old.ws, { type: "disconnected", reason: "same_user_reconnected" });
-        old.ws.close();
+        try {
+          old.ws.close();
+        } catch {
+          // ignore
+        }
       }
 
       ws.ircUser = user;
       clients.set(user, { ws, user, connectedAt: Date.now() });
-      send(ws, { type: "connected", user, users: [...clients.keys()] });
+      send(ws, { type: "connected", user, users: userList() });
+      broadcast({ type: "join", user }, user);
       broadcast({ type: "system", message: `${user} joined IRC`, user }, user);
       return;
     }
@@ -115,15 +154,19 @@ wss.on("connection", (ws) => {
 
     if (type === "disconnect") {
       disconnectUser(ws.ircUser, "client_disconnect");
-      ws.close();
+      ws.ircUser = null;
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
       return;
     }
 
     if (type === "say") {
       const message = cleanMessage(packet.message);
       if (!message) return send(ws, { type: "error", error: "empty_message" });
-      const out = { type: "say", from: ws.ircUser, message, time: Date.now() };
-      broadcast(out);
+      broadcast({ type: "say", from: ws.ircUser, message, time: Date.now() });
       return;
     }
 
@@ -142,7 +185,7 @@ wss.on("connection", (ws) => {
     }
 
     if (type === "users") {
-      return send(ws, { type: "users", users: [...clients.keys()] });
+      return send(ws, { type: "users", users: userList() });
     }
 
     send(ws, { type: "error", error: "unknown_type", received: type });
@@ -155,6 +198,28 @@ wss.on("connection", (ws) => {
   });
 });
 
+const heartbeat = setInterval(() => {
+  for (const client of clients.values()) {
+    const ws = client.ws;
+    if (ws.isAlive === false) {
+      try {
+        ws.terminate();
+      } catch {
+        // ignore
+      }
+      continue;
+    }
+    ws.isAlive = false;
+    try {
+      ws.ping();
+    } catch {
+      // ignore
+    }
+  }
+}, HEARTBEAT_INTERVAL_MS);
+
+wss.on("close", () => clearInterval(heartbeat));
+
 server.listen(PORT, () => {
-  console.log(`MC Custom IRC listening on ${PORT}`);
+  console.log(`Navine Client IRC listening on ${PORT} (auth ${SECRET_REQUIRED ? "on" : "off"})`);
 });
