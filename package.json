@@ -1,1 +1,0 @@
-{"name":"mc-irc-server","version":"1.0.0","description":"Minimal IRC server for Minecraft .irc command/testing","main":"server.js","scripts":{"start":"node server.js"},"engines":{"node":">=18"},"dependencies":{}}
