@@ -21,7 +21,7 @@ All messages are JSON over WebSocket.
 
 | type | fields | description |
 |------|--------|-------------|
-| `connect` | `user` (required), `tag` (optional) | Join IRC as a user |
+| `connect` | `user` (required) | Join IRC as a user |
 | `say` | `message` | Broadcast chat message |
 | `dm` | `to`, `message` | Direct message to online user |
 | `owner_announce` | `message` | Owner-only broadcast |
