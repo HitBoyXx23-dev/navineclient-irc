@@ -24,7 +24,7 @@ All messages are JSON over WebSocket.
 | `connect` | `user` (required), `tag` (optional) | Join IRC as a user |
 | `say` | `message` | Broadcast chat message |
 | `dm` | `to`, `message` | Direct message to online user |
-| `owner_announce` | `message` | Owner-only broadcast (hitboyxx23, zach) |
+| `owner_announce` | `message` | Owner-only broadcast |
 | `disconnect` | | Leave IRC and close session |
 | `ping` | | Optional keepalive; server replies with `pong` |
 
