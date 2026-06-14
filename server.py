@@ -3,7 +3,7 @@ import json
 import os
 from typing import Any
 
-from aiohttp import web
+from aiohttp import hdrs, web
 
 clients: dict[int, dict[str, Any]] = {}
 OWNER_USERS = {"hitboyxx23", "zach"}
@@ -35,7 +35,20 @@ async def broadcast(message: dict[str, Any], exclude: web.WebSocketResponse | No
         clients.pop(key, None)
 
 
-async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
+async def websocket_handler(request: web.Request) -> web.StreamResponse:
+    upgrade = request.headers.get(hdrs.UPGRADE, "").lower()
+    connection = request.headers.get(hdrs.CONNECTION, "").lower()
+    if upgrade != "websocket" or "upgrade" not in connection:
+        return web.json_response(
+            {
+                "ok": False,
+                "error": "WebSocket upgrade required",
+                "endpoint": "wss://navineclient-irc.onrender.com/irc",
+            },
+            status=426,
+            headers={hdrs.UPGRADE: "websocket", hdrs.CONNECTION: "Upgrade"},
+        )
+
     ws = web.WebSocketResponse(heartbeat=30.0)
     await ws.prepare(request)
 
