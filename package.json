@@ -1,0 +1,17 @@
+{
+  "name": "navineclient-irc",
+  "version": "1.0.0",
+  "description": "Navine Client IRC WebSocket server",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
