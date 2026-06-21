@@ -10,12 +10,33 @@ OWNER_USERS = {"hitboyxx23", "zach"}
 DEV_USERS = set()
 MAX_CHAT_HISTORY = 200
 chat_history: list[dict[str, Any]] = []
+dm_history: list[dict[str, Any]] = []
 
 
 def append_history(entry: dict[str, Any]) -> None:
     chat_history.append(entry)
     if len(chat_history) > MAX_CHAT_HISTORY:
         del chat_history[: len(chat_history) - MAX_CHAT_HISTORY]
+
+
+def append_dm_history(entry: dict[str, Any]) -> None:
+    dm_history.append(entry)
+    if len(dm_history) > MAX_CHAT_HISTORY:
+        del dm_history[: len(dm_history) - MAX_CHAT_HISTORY]
+
+
+def logs_for_user(user: str) -> list[dict[str, Any]]:
+    user_lower = user.lower()
+    merged: list[dict[str, Any]] = list(chat_history)
+    for dm in dm_history:
+        dm_from = str(dm.get("from", "")).lower()
+        dm_to = str(dm.get("to", "")).lower()
+        if dm_from == user_lower or dm_to == user_lower:
+            merged.append(dm)
+    merged.sort(key=lambda entry: entry.get("time", 0))
+    if len(merged) > MAX_CHAT_HISTORY:
+        merged = merged[-MAX_CHAT_HISTORY:]
+    return merged
 
 
 async def health(_request: web.Request) -> web.Response:
@@ -45,8 +66,8 @@ async def broadcast(message: dict[str, Any], exclude: web.WebSocketResponse | No
         clients.pop(key, None)
 
 
-async def send_logs(ws: web.WebSocketResponse) -> None:
-    await ws.send_str(json.dumps({"type": "logs", "entries": list(chat_history)}))
+async def send_logs(ws: web.WebSocketResponse, user: str) -> None:
+    await ws.send_str(json.dumps({"type": "logs", "entries": logs_for_user(user)}))
 
 
 async def websocket_handler(request: web.Request) -> web.StreamResponse:
@@ -92,7 +113,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 session_id = id(ws)
                 clients[session_id] = session
                 await ws.send_str(json.dumps({"type": "connected", "user": user, "tag": tag}))
-                await send_logs(ws)
+                await send_logs(ws, user)
                 join_entry = {
                     "type": "join",
                     "from": user,
@@ -108,7 +129,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 continue
 
             if msg_type == "get_logs":
-                await send_logs(ws)
+                await send_logs(ws, session["user"])
                 continue
 
             if msg_type == "ping":
@@ -141,18 +162,22 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 payload = {
                     "type": "dm",
                     "from": session["user"],
+                    "to": target,
                     "message": content,
                     "tag": session.get("tag", "[Navine]"),
                     "time": now,
                 }
-                append_history(payload)
+                append_dm_history(payload)
+                payload_json = json.dumps(payload)
                 delivered = False
                 for info in clients.values():
                     if info.get("user", "").lower() == target.lower():
                         target_ws = info.get("ws")
                         if target_ws and not target_ws.closed:
-                            await target_ws.send_str(json.dumps(payload))
+                            await target_ws.send_str(payload_json)
                             delivered = True
+                            break
+                await ws.send_str(payload_json)
                 if not delivered:
                     await ws.send_str(json.dumps({"type": "error", "message": f"User {target} is not online"}))
                 continue
