@@ -26,7 +26,17 @@ def append_dm_history(entry: dict[str, Any]) -> None:
 
 
 def logs_for_user(user: str) -> list[dict[str, Any]]:
-    return list(chat_history)
+    user_lower = user.lower()
+    merged: list[dict[str, Any]] = list(chat_history)
+    for entry in dm_history:
+        from_user = str(entry.get("from", "")).lower()
+        to_user = str(entry.get("to", "")).lower()
+        if from_user == user_lower or to_user == user_lower:
+            merged.append(entry)
+    merged.sort(key=lambda e: e.get("time", 0))
+    if len(merged) > MAX_CHAT_HISTORY:
+        merged = merged[-MAX_CHAT_HISTORY:]
+    return merged
 
 
 async def health(_request: web.Request) -> web.Response:
