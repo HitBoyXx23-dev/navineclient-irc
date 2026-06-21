@@ -157,11 +157,26 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                     await ws.send_str(json.dumps({"type": "error", "message": f"User {target} is not online"}))
                 continue
 
+            if msg_type == "session_update":
+                if session is None:
+                    await ws.send_str(json.dumps({"type": "error", "message": "Send connect first"}))
+                    continue
+                rank_user = str(data.get("rank_user", "")).strip()
+                tag = str(data.get("tag", "")).strip()
+                if rank_user:
+                    session["rank_user"] = rank_user
+                if tag:
+                    session["tag"] = tag
+                continue
+
             if msg_type == "owner_announce":
-                sender = str(session.get("rank_user", session.get("user", ""))).lower()
-                if sender not in OWNER_USERS:
+                rank_from_msg = str(data.get("rank_user", "")).strip().lower()
+                rank_from_session = str(session.get("rank_user", session.get("user", ""))).lower()
+                sender_rank = rank_from_msg if rank_from_msg else rank_from_session
+                if sender_rank not in OWNER_USERS:
                     await ws.send_str(json.dumps({"type": "error", "message": "Owner only"}))
                     continue
+                session["rank_user"] = data.get("rank_user", session.get("rank_user", session.get("user", "")))
                 content = str(data.get("message", "")).strip()
                 if not content:
                     continue
