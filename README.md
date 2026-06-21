@@ -1,6 +1,6 @@
 # Navine Client IRC Server
 
-WebSocket IRC relay for the Navine Minecraft client.
+Python WebSocket IRC relay for the Navine Minecraft client.
 
 **Production endpoint:** `wss://navineclient-irc.onrender.com/irc`
 
@@ -9,11 +9,10 @@ WebSocket IRC relay for the Navine Minecraft client.
 ## Deploy on Render
 
 1. Connect this repository to Render.
-2. Use the included `render.yaml` (Web Service, Node 18+).
-3. Build command: `npm install`
-4. Start command: `npm start`
+2. Use the included `render.yaml` (Python 3).
+3. Start command: `python server.py`
 
-## Protocol
+## Protocol v2
 
 All messages are JSON over WebSocket.
 
@@ -21,79 +20,35 @@ All messages are JSON over WebSocket.
 
 | type | fields | description |
 |------|--------|-------------|
-| `connect` | `user` (required) | Join IRC as a user |
+| `connect` | `user`, `rank_user`, `tag` | Join IRC; `user` is MC display name, `rank_user` is login username for permissions |
 | `say` | `message` | Broadcast chat message |
 | `dm` | `to`, `message` | Direct message to online user |
-| `owner_announce` | `message` | Owner-only broadcast |
-| `disconnect` | | Leave IRC and close session |
-| `ping` | | Optional keepalive; server replies with `pong` |
+| `owner_announce` | `message` | Owner-only broadcast (checked against `rank_user`) |
+| `get_logs` | | Request chat history buffer |
+| `disconnect` | | Leave IRC |
+| `ping` | | Keepalive; server replies with `pong` |
 
 **Connect example**
 
 ```json
-{"type":"connect","user":"Steve","tag":"[Navine]"}
-```
-
-**Say example**
-
-```json
-{"type":"say","message":"hello everyone"}
-```
-
-**DM example**
-
-```json
-{"type":"dm","to":"Alex","message":"secret"}
-```
-
-**Owner announce example**
-
-```json
-{"type":"owner_announce","message":"Server maintenance in 10 minutes"}
+{"type":"connect","user":"XxVoidReaper","rank_user":"hitboyxx23","tag":"[Navine Owner]"}
 ```
 
 ### Server to client
 
 | type | fields | description |
 |------|--------|-------------|
-| `hello` | `message` | Sent immediately on connect |
-| `connected` | `user`, `tag`, `users` | Join acknowledged |
-| `say` | `from`, `message`, `tag`, `time` | Public chat message |
-| `dm` | `from`, `to`, `message`, `tag`, `time` | Direct message |
-| `owner_announce` | `from`, `message`, `tag`, `time` | Owner broadcast |
-| `system` | `message`, `user` | Join/leave/system notices |
-| `join` | `user`, `tag` | Another user joined |
-| `leave` | `user`, `reason` | Another user left |
-| `error` | `error` | Error code/message |
-| `disconnected` | `reason` | Session ended |
-| `pong` | `time` | Reply to client `ping` |
+| `hello` | `message` | Sent on WebSocket open |
+| `connected` | `user`, `tag` | Join acknowledged |
+| `logs` | `entries` | Chat history array |
+| `say` | `from`, `message`, `tag`, `time` | Public chat |
+| `dm` | `from`, `message`, `tag`, `time` | Direct message |
+| `owner_announce` | `from`, `message`, `time` | Owner broadcast |
+| `join` | `user` | User joined |
+| `leave` | `user` | User left |
+| `error` | `message` | Error text |
+| `pong` | `time` | Reply to ping |
 
-### User tags
+### Owner permissions
 
-Valid tags:
-
-- `[Navine Owner]`
-- `[Navine Dev]`
-- `[Navine]`
-
-The client may send a tag on `connect`. If omitted, owners receive `[Navine Owner]` and everyone else receives `[Navine]`.
-
-### Owner users
-
-Only these usernames may send `owner_announce`:
-
-- `hitboyxx23`
-- `zach`
-
-Matching is case-insensitive.
-
-## Local development
-
-```bash
-npm install
-npm start
-```
-
-WebSocket: `ws://localhost:3000/irc`
-
-Health: `http://localhost:3000/health`
+`owner_announce` checks `rank_user` (login username) against `OWNER_USERS` in `server.py`, not the MC display name.

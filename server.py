@@ -7,6 +7,7 @@ from aiohttp import hdrs, web
 
 clients: dict[int, dict[str, Any]] = {}
 OWNER_USERS = {"hitboyxx23", "zach"}
+DEV_USERS = set()
 MAX_CHAT_HISTORY = 200
 chat_history: list[dict[str, Any]] = []
 
@@ -85,8 +86,9 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
 
             if msg_type == "connect":
                 user = str(data.get("user", "Unknown")).strip() or "Unknown"
+                rank_user = str(data.get("rank_user", user)).strip() or user
                 tag = str(data.get("tag", "[Navine]")).strip() or "[Navine]"
-                session = {"user": user, "tag": tag, "ws": ws}
+                session = {"user": user, "rank_user": rank_user, "tag": tag, "ws": ws}
                 session_id = id(ws)
                 clients[session_id] = session
                 await ws.send_str(json.dumps({"type": "connected", "user": user, "tag": tag}))
@@ -156,7 +158,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 continue
 
             if msg_type == "owner_announce":
-                sender = str(session.get("user", "")).lower()
+                sender = str(session.get("rank_user", session.get("user", ""))).lower()
                 if sender not in OWNER_USERS:
                     await ws.send_str(json.dumps({"type": "error", "message": "Owner only"}))
                     continue
